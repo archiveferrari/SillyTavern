@@ -1969,7 +1969,7 @@
                                 <small data-i18n="Example: http://127.0.0.1:5000/api ">Example: http://127.0.0.1:5000/api </small>
                                 <input id="api_url_text" name="api_url" class="text_pole" placeholder="http://127.0.0.1:5000/api" maxlength="500" value="" autocomplete="off" data-server-history="kobold">
                                 <div id="koboldcpp_hint" class="neutral_warning displayNone">
-                                    We have a dedicated KoboldCpp support under Text Completion ⇒ KoboldCpp.
+                                    KoboldCpp works better when you select the Text Completion API and then KoboldCpp as a type!
                                 </div>
                                 <div class="flex-container">
                                     <div id="api_button" class="api_button menu_button" type="submit" data-i18n="Connect" data-server-connect="kobold">Connect</div>
@@ -3542,6 +3542,12 @@
                                             </div>
                                         </div>
                                         <div id="wiCheckboxes" class="flex1 flex-container flexFlowColumn">
+                                            <label title="Include names with each message into the context for scanning" data-i18n="[title]Include names with each message into the context for scanning" class="checkbox_label flex1">
+                                                <input id="world_info_include_names" type="checkbox" />
+                                                <small data-i18n="Include Names" class="whitespacenowrap flex1">
+                                                    Include Names
+                                                </small>
+                                            </label>
                                             <label title="Entries can activate other entries by mentioning their keywords" data-i18n="[title]Entries can activate other entries by mentioning their keywords" class="checkbox_label flex1">
                                                 <input id="world_info_recursive" type="checkbox" />
                                                 <small data-i18n="Recursive Scan" class="whitespacenowrap flex1">
@@ -4140,6 +4146,10 @@
                                 <label data-newbie-hidden class="checkbox_label" for="request_token_probabilities" title="Requests logprobs from the API for the Token Probabilities feature." data-i18n="[title]Requests logprobs from the API for the Token Probabilities feature">
                                     <input id="request_token_probabilities" type="checkbox" />
                                     <small data-i18n="Request token probabilities">Request token probabilities</small>
+                                </label>
+                                <label data-newbie-hidden class="checkbox_label" for="show_group_chat_queue" title="In group chat, highlight the character(s) that are currently queued to generate responses and the order in which they will respond." data-i18n="[title]In group chat, highlight the character(s) that are currently queued to generate responses and the order in which they will respond.">
+                                    <input id="show_group_chat_queue" type="checkbox" />
+                                    <small data-i18n="Show group chat queue">Show group chat queue</small>
                                 </label>
                                 <div data-newbie-hidden class="inline-drawer wide100p flexFlowColumn">
                                     <div class="inline-drawer-toggle inline-drawer-header userSettingsInnerExpandable" title="Automatically reject and re-generate AI message based on configurable criteria." data-i18n="[title]Automatically reject and re-generate AI message based on configurable criteria">
@@ -5596,10 +5606,10 @@
                             <label for="completion_prompt_manager_popup_entry_form_injection_position">
                                 <span data-i18n="prompt_manager_position">Position</span>
                             </label>
-                            <div class="text_muted" data-i18n="Injection position. Next to other prompts (relative) or in-chat (absolute).">Injection position. Next to other prompts (relative) or in-chat (absolute).</div>
+                            <div class="text_muted" data-i18n="Injection position. Relative (to other prompts in prompt manager) or In-chat @ Depth.">Injection position. Relative (to other prompts in prompt manager) or In-chat @ Depth.</div>
                             <select id="completion_prompt_manager_popup_entry_form_injection_position" class="text_pole" name="injection_position">
                                 <option data-i18n="prompt_manager_relative" value="0">Relative</option>
-                                <option data-i18n="prompt_manager_absolute" value="1">Absolute</option>
+                                <option data-i18n="prompt_manager_in_chat" value="1">In-chat</option>
                             </select>
                         </div>
                         <div id="completion_prompt_manager_depth_block" class="completion_prompt_manager_popup_entry_form_control flex1">
@@ -5796,6 +5806,7 @@
                 <div class="tags tags_inline"></div>
             </div>
             <input class="ch_fav" value="" hidden />
+            <div class="queue_position"></div>
             <div class="group_member_icon">
                 <div title="Temporarily disable automatic replies from this character" data-action="disable" class="right_menu_button fa-solid fa-lg fa-comment-slash" data-i18n="[title]Temporarily disable automatic replies from this character"></div>
                 <div title="Enable automatic replies from this character" data-action="enable" class="right_menu_button fa-solid fa-lg fa-comment-slash" data-i18n="[title]Enable automatic replies from this character"></div>
@@ -6411,6 +6422,7 @@
         </div>
     </div>
     <!-- Script includes -->
+    <script src="lib/diff_match_patch.js"></script>
     <script src="lib/object-hasown.js"></script>
     <script src="lib/jquery-3.5.1.min.js"></script>
     <script src="lib/jquery-ui.min.js"></script>

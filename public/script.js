@@ -35,6 +35,7 @@ import {
     setWorldInfoButtonClass,
     importWorldInfo,
     wi_anchor_position,
+    world_info_include_names,
 } from './scripts/world-info.js';
 
 import {
@@ -227,7 +228,7 @@ import { appendFileContent, hasPendingFileAttachment, populateFileAttachment, de
 import { initPresetManager } from './scripts/preset-manager.js';
 import { MacrosParser, evaluateMacros } from './scripts/macros.js';
 import { currentUser, setUserControls } from './scripts/user.js';
-import { POPUP_TYPE, Popup, callGenericPopup, fixToastrForDialogs } from './scripts/popup.js';
+import { POPUP_RESULT, POPUP_TYPE, Popup, callGenericPopup, fixToastrForDialogs } from './scripts/popup.js';
 import { renderTemplate, renderTemplateAsync } from './scripts/templates.js';
 import { ScraperManager } from './scripts/scrapers.js';
 import { SlashCommandParser } from './scripts/slash-commands/SlashCommandParser.js';
@@ -520,6 +521,7 @@ const chatElement = $('#chat');
 let dialogueResolve = null;
 let dialogueCloseStop = false;
 export let chat_metadata = {};
+/** @type {StreamingProcessor} */
 export let streamingProcessor = null;
 let crop_data = undefined;
 let is_delete_mode = false;
@@ -837,6 +839,7 @@ export let main_api;// = "kobold";
 //novel settings
 export let novelai_settings;
 export let novelai_setting_names;
+/** @type {AbortController} */
 let abortController;
 
 //css
@@ -848,6 +851,7 @@ var kobold_horde_model = '';
 export let token;
 
 var PromptArrayItemForRawPromptDisplay;
+var priorPromptArrayItemForRawPromptDisplay;
 
 /** The tag of the active character. (NOT the id) */
 export let active_character = '';
@@ -3498,7 +3502,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
     // Add WI to prompt (and also inject WI to AN value via hijack)
     // Make quiet prompt available for WIAN
     setExtensionPrompt('QUIET_PROMPT', quiet_prompt || '', extension_prompt_types.IN_PROMPT, 0, true);
-    const chatForWI = coreChat.map(x => `${x.name}: ${x.mes}`).reverse();
+    const chatForWI = coreChat.map(x => world_info_include_names ? `${x.name}: ${x.mes}` : x.mes).reverse();
     const { worldInfoString, worldInfoBefore, worldInfoAfter, worldInfoExamples, worldInfoDepth } = await getWorldInfoPrompt(chatForWI, this_max_context, dryRun);
     setExtensionPrompt('QUIET_PROMPT', '', extension_prompt_types.IN_PROMPT, 0, true);
 
@@ -4381,6 +4385,25 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
 }
 
 /**
+ * Stops the generation and any streaming if it is currently running.
+ */
+export function stopGeneration() {
+    let stopped = false;
+    if (streamingProcessor) {
+        streamingProcessor.onStopStreaming();
+        streamingProcessor = null;
+        stopped = true;
+    }
+    if (abortController) {
+        abortController.abort('Clicked stop button');
+        hideStopButton();
+        stopped = true;
+    }
+    eventSource.emit(event_types.GENERATION_STOPPED);
+    return stopped;
+}
+
+/**
  * Injects extension prompts into chat messages.
  * @param {object[]} messages Array of chat messages
  * @param {boolean} isContinue Whether the generation is a continuation. If true, the extension prompts of depth 0 are injected at position 1.
@@ -4884,6 +4907,9 @@ export function findItemizedPromptSet(itemizedPrompts, incomingMesId) {
             PromptArrayItemForRawPromptDisplay = i;
             console.log(`wanting to raw display of ArrayItem: ${PromptArrayItemForRawPromptDisplay} which is mesID ${incomingMesId}`);
             console.log(itemizedPrompts[thisPromptSet]);
+            break;
+        } else if (itemizedPrompts[i].rawPrompt) {
+            priorPromptArrayItemForRawPromptDisplay = i;
         }
     }
     return thisPromptSet;
@@ -4902,6 +4928,7 @@ async function promptItemize(itemizedPrompts, requestedMesId) {
     }
 
     const params = await itemizedParams(itemizedPrompts, thisPromptSet);
+    const flatten = (rawPrompt) => Array.isArray(rawPrompt) ? rawPrompt.map(x => x.content).join('\n') : rawPrompt;
 
     const template = params.this_main_api == 'openai'
         ? await renderTemplateAsync('itemizationChat', params)
@@ -4909,6 +4936,32 @@ async function promptItemize(itemizedPrompts, requestedMesId) {
 
     const popup = new Popup(template, POPUP_TYPE.TEXT);
 
+    /** @type {HTMLElement} */
+    const diffPrevPrompt = popup.dlg.querySelector('#diffPrevPrompt');
+    if (priorPromptArrayItemForRawPromptDisplay) {
+        diffPrevPrompt.style.display = '';
+        diffPrevPrompt.addEventListener('click', function () {
+            const dmp = new diff_match_patch();
+            const text1 = flatten(itemizedPrompts[priorPromptArrayItemForRawPromptDisplay].rawPrompt);
+            const text2 = flatten(itemizedPrompts[PromptArrayItemForRawPromptDisplay].rawPrompt);
+
+            dmp.Diff_Timeout = 2.0;
+
+            const d = dmp.diff_main(text1, text2);
+            let ds = dmp.diff_prettyHtml(d);
+            // make it readable
+            ds = ds.replaceAll('background:#e6ffe6;', 'background:#b9f3b9; color:black;');
+            ds = ds.replaceAll('background:#ffe6e6;', 'background:#f5b4b4; color:black;');
+            ds = ds.replaceAll('&para;', '');
+            const container = document.createElement('div');
+            container.innerHTML = DOMPurify.sanitize(ds);
+            const rawPromptWrapper = document.getElementById('rawPromptWrapper');
+            rawPromptWrapper.replaceChildren(container);
+            $('#rawPromptPopup').slideToggle();
+        });
+    } else {
+        diffPrevPrompt.style.display = 'none';
+    }
     popup.dlg.querySelector('#copyPromptToClipboard').addEventListener('click', function () {
         let rawPrompt = itemizedPrompts[PromptArrayItemForRawPromptDisplay].rawPrompt;
         let rawPromptValues = rawPrompt;
@@ -4927,16 +4980,11 @@ async function promptItemize(itemizedPrompts, requestedMesId) {
         console.log(itemizedPrompts);
         console.log(itemizedPrompts[PromptArrayItemForRawPromptDisplay].rawPrompt);
 
-        let rawPrompt = itemizedPrompts[PromptArrayItemForRawPromptDisplay].rawPrompt;
-        let rawPromptValues = rawPrompt;
-
-        if (Array.isArray(rawPrompt)) {
-            rawPromptValues = rawPrompt.map(x => x.content).join('\n');
-        }
+        const rawPrompt = flatten(itemizedPrompts[PromptArrayItemForRawPromptDisplay].rawPrompt);
 
         //let DisplayStringifiedPrompt = JSON.stringify(itemizedPrompts[PromptArrayItemForRawPromptDisplay].rawPrompt).replace(/\n+/g, '<br>');
         const rawPromptWrapper = document.getElementById('rawPromptWrapper');
-        rawPromptWrapper.innerText = rawPromptValues;
+        rawPromptWrapper.innerText = rawPrompt;
         $('#rawPromptPopup').slideToggle();
     });
 
@@ -4998,6 +5046,10 @@ async function sendGenerationRequest(type, data) {
  * @returns {Promise<any>} Streaming generator
  */
 async function sendStreamingRequest(type, data) {
+    if (abortController?.signal?.aborted) {
+        throw new Error('Generation was aborted.');
+    }
+
     switch (main_api) {
         case 'openai':
             return await sendOpenAIRequest(type, data.prompt, streamingProcessor.abortController.signal);
@@ -6088,7 +6140,7 @@ export function changeMainAPI() {
     }
 
     if (selectedVal === 'textgenerationwebui' || selectedVal === 'novel') {
-        console.log('enabling amount_gen for ooba/novel');
+        console.debug('enabling amount_gen for ooba/novel');
         activeItem.amountGenElem.find('input').prop('disabled', false);
         activeItem.amountGenElem.css('opacity', 1.0);
     }
@@ -7163,7 +7215,8 @@ function onScenarioOverrideRemoveClick() {
  * @param {string} inputValue - Value to set the input to.
  * @param {PopupOptions} options - Options for the popup.
  * @typedef {{okButton?: string, rows?: number, wide?: boolean, wider?: boolean, large?: boolean, allowHorizontalScrolling?: boolean, allowVerticalScrolling?: boolean, cropAspect?: number }} PopupOptions - Options for the popup.
- * @returns
+ * @returns {Promise<any>} A promise that resolves when the popup is closed.
+ * @deprecated Use `callGenericPopup` instead.
  */
 export function callPopup(text, type, inputValue = '', { okButton, rows, wide, wider, large, allowHorizontalScrolling, allowVerticalScrolling, cropAspect } = {}) {
     function getOkButtonText() {
@@ -7794,6 +7847,7 @@ window['SillyTavern'].getContext = function () {
         eventTypes: event_types,
         addOneMessage: addOneMessage,
         generate: Generate,
+        stopGeneration: stopGeneration,
         getTokenCount: getTokenCount,
         extensionPrompts: extension_prompts,
         setExtensionPrompt: setExtensionPrompt,
@@ -7849,6 +7903,8 @@ window['SillyTavern'].getContext = function () {
          * @deprecated Legacy snake-case naming, compatibility with old extensions
          */
         event_types: event_types,
+        POPUP_TYPE: POPUP_TYPE,
+        POPUP_RESULT: POPUP_RESULT,
     };
 };
 
@@ -10342,15 +10398,7 @@ jQuery(async function () {
     });
 
     $(document).on('click', '.mes_stop', function () {
-        if (streamingProcessor) {
-            streamingProcessor.onStopStreaming();
-            streamingProcessor = null;
-        }
-        if (abortController) {
-            abortController.abort('Clicked stop button');
-            hideStopButton();
-        }
-        eventSource.emit(event_types.GENERATION_STOPPED);
+        stopGeneration();
     });
 
     $(document).on('click', '#form_sheld .stscript_continue', function () {
@@ -10839,3 +10887,4 @@ jQuery(async function () {
 
     initCustomSelectedSamplers();
 });
+
